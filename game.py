@@ -16,6 +16,27 @@ TREE= '♣'
 # Set of tiles the player is allowed to walk on
 WALKABLE = {FLOOR, DOOR}
 
+# Starting meter values that reflect an authorized professional which is the player
+# Four meters = higher is better, two which are risk, cia = higher is worse
+STARTING_METERS = {
+    # actions stay authorized
+    "scope": 100,
+    # findings documented so far
+    "evidence": 0,
+    # privacy and professional conduct
+    "ethics": 100,
+    # operational danger accumulated (higher = worse)
+    "risk": 0,
+    # client confidence
+    "trust": 100,
+    # damage caused to target systems (higher = worse)
+    "cia": 0
+}
+
+# Meters run on a fixed scale so scoring can stay predictable
+METER_MIN = 0
+METER_MAX = 100
+
 
 class Game:
     def __init__(self):
@@ -26,16 +47,16 @@ class Game:
             "████████████████████████████████████████",
             "█░░██░░██░░██░░██░░██░░██░░██░░██░░██░██",
             "████████████████████████████████████████",
-            "█·♣··································♣·█",
+            "█·♣·♣·♣·♣·♣·♣·♣·♣·♣··♣·♣·♣·♣·♣·♣·♣·♣·♣·█",
             "█······································█",
             "█······································█",
             "█·♣··································♣·█",
             "█···████████████████▒███████████████···█",
             "█···█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█···█",
             "█···█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█···█",
+            "█···█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█···█",
+            "█···█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█···█",
             "█···████████████████████████████████···█",
-            "█······································█",
-            "█······································█",
             "████████████████████████████████████████",
         ]
         self.map = [list(row) for row in raw_map]
@@ -44,6 +65,16 @@ class Game:
         self.player_col = 2
         self.running = True
         self.level_complete = False
+        # dict() copies so choices mutate this game's meters, not the shared constant
+        self.meters = dict(STARTING_METERS)
+        # counts every player action - visible evidence of gameplay
+        self.tick_count = 0
+
+    def modify_meter(self, name, delta):
+        """Apply a change to a meter, clamped to the [0, 100] range."""
+        current = self.meters[name]
+        # max/min pair clamps: never below MIN, never above MAX
+        self.meters[name] = max(METER_MIN, min(METER_MAX, current + delta))
 
     def render(self, stdscr):
         """Draw the map and player to the terminal."""
@@ -69,6 +100,27 @@ class Game:
         if status_row < max_rows:
             try:
                 stdscr.addstr(status_row, 0, "WASD or Arrow Keys to move | Q to quit")
+            except curses.error:
+                pass
+
+        # Action counter below the controls hint
+        tick_row = status_row + 1
+        if tick_row < max_rows:
+            try:
+                stdscr.addstr(tick_row, 0, f"TICK: {self.tick_count}")
+            except curses.error:
+                pass
+
+        # Meters panel below the tick counter
+        meter_start_row = status_row + 3
+        # enumerate gives each meter its own row so they stack vertically
+        for offset, (name, value) in enumerate(self.meters.items()):
+            meter_row = meter_start_row + offset
+            if meter_row >= max_rows:
+                break
+            try:
+                # upper() and :>3 keep the labels and numbers aligned in a column
+                stdscr.addstr(meter_row, 0, f"{name.upper():<10} {value:>3}")
             except curses.error:
                 pass
 
@@ -122,6 +174,8 @@ def main(stdscr):
         game.render(stdscr)
         direction = game.handle_input(stdscr)
         game.update(direction)
+        # one loop pass = one action processed, so increment the counter
+        game.tick_count += 1
 
     # Show transition message when a level is completed
     if game.level_complete:
