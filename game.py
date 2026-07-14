@@ -37,13 +37,13 @@ STARTING_METERS = {
 METER_MIN = 0
 METER_MAX = 100
 
-
-class Game:
-    def __init__(self):
-        """Set up the game state by load the map, placeing the player, and initialising flags."""
-        # this is level 1, outside the building in the CBD for example. Just simple street with few trees for now
-        # may come back and redesign this level, but TODO: is make a few more levels (at least 5)
-        raw_map = [
+# After reviewing the levels and game design, i think its best to keep levels as a
+# constant list of dictionaries, each containing a map and a starting position for the player. 
+# That way we can expand game easily to list without change much
+LEVELS = [
+    {
+        # Level 1: outside the building in the CBD - a simple street with trees
+        "map": [
             "████████████████████████████████████████",
             "█░░██░░██░░██░░██░░██░░██░░██░░██░░██░██",
             "████████████████████████████████████████",
@@ -58,17 +58,49 @@ class Game:
             "█···█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█···█",
             "█···████████████████████████████████···█",
             "████████████████████████████████████████",
-        ]
-        self.map = [list(row) for row in raw_map]
-        # Player starts on the road, approaching from the west
-        self.player_row = 4
-        self.player_col = 2
+        ],
+        "start": (4, 2),
+    },
+    {
+        # Level 2: the building lobby - front desk (☻) and an inner door deeper in
+        "map": [
+            "██████████████████████████████",
+            "█····························█",
+            "█····························█",
+            "█·········☻··················█",
+            "█····························█",
+            "█····························█",
+            "█····························█",
+            "█····························█",
+            "█····························█",
+            "█·············▒··············█",
+            "██████████████████████████████",
+        ],
+        "start": (1, 15),
+    },
+]
+
+
+class Game:
+    def __init__(self):
+        """Set up persistent game state (meters, tick), then load the first level."""
         self.running = True
         self.level_complete = False
         # dict() copies so choices mutate this game's meters, not the shared constant
         self.meters = dict(STARTING_METERS)
         # counts every player action - visible evidence of gameplay
         self.tick_count = 0
+        # meters and tick persist across levels, only the map + player position swap
+        self.current_level = 0
+        self.load_level(self.current_level)
+
+    def load_level(self, index):
+        """Swap in a level's map and player start. Meters and tick persist across levels."""
+        level = LEVELS[index]
+        self.current_level = index
+        # fresh 2D copy so opening doors/editing tiles never change the LEVELS constant
+        self.map = [list(row) for row in level["map"]]
+        self.player_row, self.player_col = level["start"]
 
     def modify_meter(self, name, delta):
         """Apply a change to a meter, clamped to the [0, 100] range."""
@@ -155,10 +187,13 @@ class Game:
             self.player_row = new_row
             self.player_col = new_col
 
-            # Stepping on a door triggers the next level
+            # Level advancement logic: Stepping on a door advances to the next level, or ends the game after the last
             if target_tile == DOOR:
-                self.level_complete = True
-                self.running = False
+                if self.current_level + 1 < len(LEVELS):
+                    self.load_level(self.current_level + 1)
+                else:
+                    self.level_complete = True
+                    self.running = False
 
 
 def main(stdscr):
@@ -177,11 +212,11 @@ def main(stdscr):
         # one loop pass = one action processed, so increment the counter
         game.tick_count += 1
 
-    # Show transition message when a level is completed
+    # Show completion message once the final level's door is reached
     if game.level_complete:
         stdscr.clear()
-        stdscr.addstr(5, 10, "Entering the building...")
-        stdscr.addstr(7, 10, "Level 2 coming soon. Press any key to exit.")
+        stdscr.addstr(5, 10, "Assessment complete.")
+        stdscr.addstr(7, 10, "Press any key to exit.")
         stdscr.refresh()
         stdscr.getch()
 
