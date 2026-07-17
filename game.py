@@ -12,6 +12,8 @@ NPC = '☻'
 ITEM = '◆'
 WINDOW = '░'
 TREE= '♣'
+# gate that blocks movement until opened
+GATE = '▓'
 
 # Set of tiles the player is allowed to walk on
 WALKABLE = {FLOOR, DOOR}
@@ -62,16 +64,17 @@ LEVELS = [
         "start": (4, 2),
     },
     {
-        # Level 2: the building lobby - front desk (☻) and an inner door deeper in
+        # Level 2: the building lobby rececption desk (☻) and badge gates (▓) blocking
+        # the way to the secure inner door (▒). Gates open after the reception encounter.
         "map": [
             "██████████████████████████████",
             "█····························█",
+            "█··████████··················█",
+            "█··█·····☻█··················█",
+            "█··████████··················█",
             "█····························█",
-            "█·········☻··················█",
             "█····························█",
-            "█····························█",
-            "█····························█",
-            "█····························█",
+            "█████████████▓▓▓██████████████",
             "█····························█",
             "█·············▒··············█",
             "██████████████████████████████",
@@ -89,6 +92,22 @@ TITLE_ART = [
     "██║  ██║██║  ██║╚██████╗██║  ██╗███████╗██║  ██║██║ ╚═╝ ██║██║  ██║██║ ╚████║",
     "╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝",
 ]
+
+# prompts for when user encounters the receptionist, what the receptionist asks, and the three ways past the gates.
+# Each option's status changes come straight from my design docs
+LOBBY_ENCOUNTER = {
+    "prompt": [
+        "The receptionist looks up as you reach the desk.",
+        "\"Morning! Do you have an appointment? The gates need a badge.\"",
+        "",
+        "How do you get past the security gates?",
+    ],
+    "options": [
+        {"label": "Present your authorisation letter", "deltas": {"evidence": 5, "trust": 5}},
+        {"label": "Pretext: flash a fake IT badge", "deltas": {"evidence": 15, "ethics": -10, "risk": 20}},
+        {"label": "Tailgate behind a staff member", "deltas": {"evidence": 20, "ethics": -15, "risk": 30, "trust": -5}},
+    ],
+}
 
 
 class Game:
@@ -112,11 +131,21 @@ class Game:
         self.map = [list(row) for row in level["map"]]
         self.player_row, self.player_col = level["start"]
 
+        # reset the one-time reception encounter flag for this level
+        self.encounter_done = False
+
     def modify_meter(self, name, delta):
         """Apply a change to a meter, clamped to the [0, 100] range."""
         current = self.meters[name]
         # max/min pair clamps: never below MIN, never above MAX
         self.meters[name] = max(METER_MIN, min(METER_MAX, current + delta))
+
+    def open_gate(self):
+        """Open the badge gates: turn every gate tile into floor so the player can pass."""
+        for row_index, row in enumerate(self.map):
+            for col_index, tile in enumerate(row):
+                if tile == GATE:
+                    self.map[row_index][col_index] = FLOOR
 
     def render(self, stdscr):
         """Draw the map and player to the terminal."""
@@ -186,7 +215,9 @@ class Game:
         return (0, 0)
 
     def update(self, direction):
-        """Move the player if the target tile is walkable, and trigger door transitions"""
+        """Handles player movemenets, doors, flags encoutners with NPCs
+        also returns a string to indicate if an encounter has been triggered
+        currently else it returns None to indicate no encounter has been triggered"""
         new_row = self.player_row + direction[0]
         new_col = self.player_col + direction[1]
 
@@ -204,6 +235,60 @@ class Game:
                 else:
                     self.level_complete = True
                     self.running = False
+
+        # Reception encounter on level 2: fire once when the player reaches row 4
+        if self.current_level == 1 and not self.encounter_done and self.player_row == 4:
+            self.encounter_done = True
+            return "encounter"
+        return None
+
+
+def run_encounter(stdscr, game):
+    """reception encounter: show the question then read a 1-3 choice, apply its meter chaneges then
+      open the gates"""
+    options = LOBBY_ENCOUNTER["options"]
+
+    # Output the different numbered prompts and wait fors a valid choice
+    choice = None
+    while choice is None:
+        stdscr.clear()
+        line_row = 1
+        for line in LOBBY_ENCOUNTER["prompt"]:
+            try:
+                stdscr.addstr(line_row, 2, line)
+            except curses.error:
+                pass
+            line_row += 1
+        line_row += 1
+        for number, option in enumerate(options, start=1):
+            try:
+                stdscr.addstr(line_row, 4, f"{number}. {option['label']}")
+            except curses.error:
+                pass
+            line_row += 1
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        # every encounter has exactly 3 options, so accept 1, 2 or 3
+        if key in (ord('1'), ord('2'), ord('3')):
+            choice = options[key - ord('1')]
+
+    # Apply the chosen approach's consequences to the meters
+    for name, delta in choice["deltas"].items():
+        game.modify_meter(name, delta)
+
+    # However they did it, they get through - open the gates so the player can proceed
+    game.open_gate()
+
+    # Brief confirmation before returning to the map
+    stdscr.clear()
+    try:
+        stdscr.addstr(2, 2, f"You chose: {choice['label']}")
+        stdscr.addstr(4, 2, "The gate clicks open. Press any key to continue...")
+    except curses.error:
+        pass
+    stdscr.refresh()
+    stdscr.getch()
 
 
 def main(stdscr):
@@ -227,9 +312,12 @@ def main(stdscr):
     while game.running:
         game.render(stdscr)
         direction = game.handle_input(stdscr)
-        game.update(direction)
+        event = game.update(direction)
         # one loop pass = one action processed, so increment the counter
         game.tick_count += 1
+        # the receptionist stops the player as they cross the row
+        if event == "encounter":
+            run_encounter(stdscr, game)
 
     # Show completion message once the final level's door is reached
     if game.level_complete:
