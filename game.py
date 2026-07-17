@@ -81,6 +81,25 @@ LEVELS = [
         ],
         "start": (1, 15),
     },
+    {
+        # Level 3: this floor has cubicles with seated workers (☻) who raise the alarm if you get
+        # too close, and one has an unlocked screen (◆) with the password needed for next level.
+        "map": [
+            "██████████████████████████████",
+            "█·············▒··············█",
+            "█··███··███··███··███········█",
+            "█··█☻█··█☻█··█◆█··█☻█········█",
+            "█····························█",
+            "█····························█",
+            "█··███··███··███··███········█",
+            "█··█☻█··█☻█··█☻█··█☻█········█",
+            "█····························█",
+            "█····························█",
+            "█····························█",
+            "██████████████████████████████",
+        ],
+        "start": (10, 14),
+    },
 ]
 
 # HACKERMAN title banner (block style) shown on the start screen
@@ -105,7 +124,10 @@ LOBBY_ENCOUNTER = {
     "options": [
         {"label": "Present your authorisation letter", "deltas": {"evidence": 5, "trust": 5}},
         {"label": "Pretext: flash a fake IT badge", "deltas": {"evidence": 15, "ethics": -10, "risk": 20}},
-        {"label": "Tailgate behind a staff member", "deltas": {"evidence": 20, "ethics": -15, "risk": 30, "trust": -5}},
+        {"label": "Tailgate behind a staff member",
+         "deltas": {"evidence": 20, "ethics": -15, "risk": 30, "trust": -5},
+         "text1": [ "You wait until a staff member walks by...", "As the receptionist is distracted, you slip through behind them.",
+         ]},
     ],
 }
 
@@ -272,6 +294,23 @@ def run_encounter(stdscr, game):
         # every encounter has exactly 3 options, so accept 1, 2 or 3
         if key in (ord('1'), ord('2'), ord('3')):
             choice = options[key - ord('1')]
+
+    # Some choices like tailgate will play a short narrative beat before the outcome
+    if "text1" in choice:
+        stdscr.clear()
+        line_row = 2
+        for line in choice["text1"]:
+            try:
+                stdscr.addstr(line_row, 2, line)
+            except curses.error:
+                pass
+            line_row += 2
+        try:
+            stdscr.addstr(line_row, 2, "Press any key to continue...")
+        except curses.error:
+            pass
+        stdscr.refresh()
+        stdscr.getch()
 
     # Apply the chosen approach's consequences to the meters
     for name, delta in choice["deltas"].items():
