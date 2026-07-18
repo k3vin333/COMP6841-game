@@ -156,6 +156,12 @@ class Game:
         # reset the one-time reception encounter flag for this level
         self.encounter_done = False
 
+        # remember worker positions for the level 3 proximity alarm
+        # near_worker flag stops it from spamming
+        self.workers = [(r, c) for r, row in enumerate(self.map)
+                        for c, tile in enumerate(row) if tile == NPC]
+        self.near_worker = False
+
     def modify_meter(self, name, delta):
         """Apply a change to a meter, clamped to the [0, 100] range."""
         current = self.meters[name]
@@ -262,6 +268,18 @@ class Game:
         if self.current_level == 1 and not self.encounter_done and self.player_row == 4:
             self.encounter_done = True
             return "encounter"
+
+        # Cubicle floor in level 3: a worker raises the alarm if you get within one tile
+        if self.current_level == 2:
+            too_close = any(abs(self.player_row - wr) <= 1 and abs(self.player_col - wc) <= 1
+                            for wr, wc in self.workers)
+            if too_close and not self.near_worker:
+                self.modify_meter("risk", 10)
+                self.modify_meter("trust", -5)
+                self.near_worker = True
+                return "alarm"
+            self.near_worker = too_close
+
         return None
 
 
@@ -357,6 +375,16 @@ def main(stdscr):
         # the receptionist stops the player as they cross the row
         if event == "encounter":
             run_encounter(stdscr, game)
+        # a cubicle worker notices the player getting too close
+        elif event == "alarm":
+            stdscr.clear()
+            try:
+                stdscr.addstr(2, 2, "A worker looks up - you're too close!")
+                stdscr.addstr(4, 2, "Risk +10, Trust -5. Press any key to back off...")
+            except curses.error:
+                pass
+            stdscr.refresh()
+            stdscr.getch()
 
     # Show completion message once the final level's door is reached
     if game.level_complete:
